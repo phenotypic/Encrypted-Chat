@@ -1,0 +1,5 @@
+prettytable>=3.6.0
+pyfiglet>=0.8
+tinyec>=0.4.0
+pyOpenSSL>=23.2.0
+pycryptodome>=3.18.0
