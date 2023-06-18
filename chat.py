@@ -229,7 +229,7 @@ def thread_receiving():
         try:
             message = decrypt_message(recv_msg())
             if message == '/quit':
-                print('\n\nPeer left the chat, exit by typing quit\n')
+                print('\n\nPeer left the chat, exiting...\n')
                 main_socket.close()
                 return
             print('\nReceived (' + print_time() + '):', message)
@@ -239,7 +239,7 @@ def thread_receiving():
             main_socket.close()
             return
         except Exception as e:
-            print('\nAn error occurred in message receiving:', e)
+            print('\nAn error while handling a message:', e)
             main_socket.close()
             return
 
