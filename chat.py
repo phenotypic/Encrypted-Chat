@@ -14,7 +14,7 @@ parser.add_argument('-i', '--ip', type=str, help='server IP address (defaults to
 parser.add_argument('-p', '--port', type=int, help='server listen port (defaults to 8000)', default=8000, nargs='?')
 parser.add_argument('-t', '--target', type=str, help='target IP address')
 parser.add_argument('-r', '--remote', type=int, help='target port (defaults to 8000)', default=8000, nargs='?')
-parser.add_argument('-m', '--mode', help='connection mode: hybrid (0), client (1), server (2) (hybrid by default)', default=0, nargs='?', choices=[0, 1, 2])
+parser.add_argument('-m', '--mode', help='connection mode: automatic (default) 0, client 1 server 2', default=0, nargs='?', choices=[0, 1, 2])
 parser.add_argument('-k', '--key', type=str, help='path to SSL private key file')
 parser.add_argument('-c', '--cert', type=str, help='path to SSL certificate file')
 args = parser.parse_args()
