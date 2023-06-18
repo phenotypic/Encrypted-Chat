@@ -28,7 +28,12 @@ print('-'*71)
 server_address = args.ip if args.ip else socket.gethostbyname_ex(hostname)[-1][-1]
 print('Server address:', server_address + ':' + str(args.port))
 
-target_address = args.target if args.target else input('Input target address: ')
+if args.target:
+    target_address = args.target
+else:
+    full_answer = input('Input target address: ').split(':')
+    target_address = full_answer[0]
+    args.remote = full_answer[1] if len(full_answer[1]) > 1 else args.remote
 print('Target address:', target_address + ':' + str(args.remote))
 
 def print_time():
