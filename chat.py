@@ -11,10 +11,10 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--ip', type=str, help='server IP address (defaults to local IP)')
-parser.add_argument('-p', '--port', type=int, help='server listen port (defaults to 8000)', default=8000, nargs='?')
+parser.add_argument('-p', '--port', type=int, help='server listen port (defaults to 8000)', default=8000)
 parser.add_argument('-t', '--target', type=str, help='target IP address')
-parser.add_argument('-r', '--remote', type=int, help='target port (defaults to 8000)', default=8000, nargs='?')
-parser.add_argument('-m', '--mode', choices=[0, 1, 2], help='connection mode: automatic (default) 0, client 1 server 2', default=0, nargs='?')
+parser.add_argument('-r', '--remote', type=int, help='target port (defaults to 8000)', default=8000)
+parser.add_argument('-m', '--mode', choices=[0, 1, 2], help='connection mode: automatic (default) 0, client 1 server 2', default=0)
 parser.add_argument('-k', '--key', type=str, help='path to SSL private key file')
 parser.add_argument('-c', '--cert', type=str, help='path to SSL certificate file')
 args = parser.parse_args()
@@ -25,90 +25,95 @@ print('\n\n' + Figlet(font='big', justify='center').renderText('P2P Chat'))
 line_print = '-' * os.get_terminal_size().columns
 print(line_print)
 
+# Function to print the current date and time
 def print_time():
     return datetime.now().strftime('%d/%m/%y %H:%M')
 
+# Try to set the server address, defaulting to the local IP if no IP is provided
 try:
-    server_address = args.ip if args.ip else socket.gethostbyname_ex(hostname)[-1][-1]
+    server_address = args.ip or socket.gethostbyname_ex(hostname)[-1][-1]
 except:
     print('Error retrieving IP address from host name, please try again...')
     quit()
-print('Server address:', server_address + ':' + str(args.port))
+print(f'Target address: {server_address}:{args.port}')
 
+# If no target IP is provided, ask the user to input it
 if not args.target:
-    full_answer = input('Input target address: ').split(':')
-    args.target = full_answer[0]
-    args.remote = full_answer[1] if len(full_answer[1]) > 1 else args.remote
-print('Target address:', args.target + ':' + str(args.remote))
+    target_ip, *target_port = input('Input target address: ').split(':')
+    args.target = target_ip
+    args.remote = target_port[0] if target_port else args.remote
+print(f'Target address: {args.target}:{args.remote}')
 
+# Set up SSL context
 secure_context = SSL.Context(SSL.TLS_METHOD)
-if args.key and args.cert:
-    # Use user-specified key and certificate
-    secure_context.use_privatekey_file(args.key)
-    secure_context.use_certificate_file(args.cert)
-else:
-    # Generate SSL key pair
+
+# Fucntion to generate a new RSA key pair and create a self-signed certificate
+def create_self_signed_cert():
     keypair = crypto.PKey()
     keypair.generate_key(crypto.TYPE_RSA, 2048)
 
-    # Create SSL self-signed certificate
     cert = crypto.X509()
     cert.get_subject().CN = hostname
     cert.set_issuer(cert.get_subject())
     cert.gmtime_adj_notBefore(0)
-    cert.gmtime_adj_notAfter(5*24*60*60) # Valid for 5 days
+    cert.gmtime_adj_notAfter(5*24*60*60)  # Certificate is valid for 5 days
     cert.set_pubkey(keypair)
     cert.sign(keypair, 'sha256')
 
-    # Initialise SSL context
+    return keypair, cert
+
+if args.key and args.cert:
+    # Use the provided key and certificate
+    secure_context.use_privatekey_file(args.key)
+    secure_context.use_certificate_file(args.cert)
+else:
+    # No key and certificate provided, generate a new self-signed certificate
+    keypair, cert = create_self_signed_cert()
     secure_context.use_privatekey(keypair)
     secure_context.use_certificate(cert)
 
-# Define client socket connection
-def client_connect():
-    main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-    main_socket.connect((args.target, args.remote))
-    print('\nConnected as a client to:', main_socket.getsockname()[0], '(' + print_time() + ')')
-    return main_socket, False
+# Create a new SSL socket connection
+def create_socket_connection(context, connection_type):
+    socket_connection = SSL.Connection(context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+    if connection_type == 'client':
+        socket_connection.connect((args.target, args.remote))
+        print(f'\nConnected as a client to: {socket_connection.getsockname()[0]} ({print_time()})')
+        acting_server = False
+    else:
+        socket_connection.bind((server_address, args.port))
+        socket_connection.listen(1)
+        socket_connection, client_address = socket_connection.accept()
+        print(f'\nServer received connection from: {client_address[0]} ({print_time()})')
+        acting_server = True
 
-# Define server socket connection
-def server_connect():
-    main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-    main_socket.bind((server_address, args.port))
-    main_socket.listen(1)
-    main_socket, client_address = main_socket.accept()
-    print('Server received connection from:', client_address[0], '(' + print_time() + ')')
-    return main_socket, True
+    return socket_connection, acting_server
 
-# Establish a socket connection
+# Establish peer-to-peer connection
 if args.mode in [0, 1]:
     try:
-        main_socket, acting_server = client_connect()
-    except socket.timeout:
-        print('\nConnection timed out, exiting...')
-        quit()
+        main_socket, acting_server = create_socket_connection(secure_context, 'client')
     except socket.error:
         if args.mode == 0:
             print('\nTarget is not available, starting listening server on port', str(args.port) + '...')
-            main_socket, acting_server = server_connect()
+            main_socket, acting_server = create_socket_connection(secure_context, 'server')
         elif args.mode == 1:
             print('\nTarget is not available, exiting...')
             quit()
 else:
-    main_socket, acting_server = server_connect()
+    main_socket, acting_server = create_socket_connection(secure_context, 'server')
 
 print(line_print)
 
 # ECC key serialisation
 def send_key(key):
-    data = {"x": str(key.x), "y": str(key.y)}
+    data = {'x': str(key.x), 'y': str(key.y)}
     json_data = json.dumps(data).encode()
     return json_data
 
 # ECC key deserialisation
 def receive_key(json_data):
     data = json.loads(json_data.decode())
-    key = ec.Point(curve, int(data["x"]), int(data["y"]))
+    key = ec.Point(curve, int(data['x']), int(data['y']))
     return key
 
 # Display a hex representation of the ECC key
@@ -116,7 +121,7 @@ def hex_key(key):
     key_material = int.to_bytes(key.x, 32, 'big') + int.to_bytes(key.y, 32, 'big')
     return key_material.hex()
 
-list = PrettyTable(['Your public key', 'Peer\'s public key'], max_width=32)
+keys_table = PrettyTable(['Your public key', 'Peer\'s public key'], max_width=32)
 
 # Get the curve
 curve = registry.get_curve('brainpoolP256r1')
@@ -130,7 +135,7 @@ try:
         main_socket.send(salt + send_key(pubKey))
         ciphertextPubKey = receive_key(main_socket.recv(256))
         sharedECDHKey = ciphertextPubKey * privKey
-        list.add_row([hex_key(pubKey), hex_key(ciphertextPubKey)])
+        keys_table.add_row([hex_key(pubKey), hex_key(ciphertextPubKey)])
     else:
         received = main_socket.recv(256)
         salt = received[:16]
@@ -139,15 +144,15 @@ try:
         ciphertextPubKey = ciphertextPrivKey * curve.g
         sharedECDHKey = pubKey * ciphertextPrivKey
         main_socket.send(send_key(ciphertextPubKey))
-        list.add_row([hex_key(ciphertextPubKey), hex_key(pubKey)])
+        keys_table.add_row([hex_key(ciphertextPubKey), hex_key(pubKey)])
 except Exception as e:
     print('\nAn error occurred during the key exchange:', e)
     main_socket.close()
     quit()
 
 print('Key exchange completed')
-print('\nVerify public keys using out-of-band communicaiton:')
-print(list)
+print('\nVerify public keys using out-of-band communication:')
+print(keys_table)
 print(line_print)
 
 # Derive the AES key from the shared key
@@ -160,6 +165,7 @@ hkdf = HKDF(
 key_material = int.to_bytes(sharedECDHKey.x, 32, 'big') + int.to_bytes(sharedECDHKey.y, 32, 'big')
 aes_key = hkdf.derive(key_material)
 
+# Print details about the encryption setup
 print('Chat is now end-to-end encrypted:\n')
 print('- Socket wrapper:                 Secure Sockets Layer (SSL)')
 print('- Key exchange scheme:            Elliptic Curve Diffie-Hellman (ECDH)')
@@ -169,7 +175,7 @@ print('- Symmetric encryption algorithm: AES-256-GCM (Galois/Counter Mode)')
 print('\nExit by typing /quit')
 print(line_print)
 
-# AES encrypt of message
+# AES message encryption
 def encrypt_message(message):
     cipher = AES.new(aes_key, AES.MODE_GCM)
     ct_bytes = cipher.encrypt(message.encode())
@@ -179,7 +185,7 @@ def encrypt_message(message):
     result = json.dumps({'iv': iv, 'ciphertext': ct, 'tag': tag})
     return result.encode()
 
-# AES decrypt of message
+# AES message decryption
 def decrypt_message(json_input):
     b64 = json.loads(json_input.decode())
     iv = b64decode(b64['iv'])
@@ -224,10 +230,10 @@ def thread_sending():
                     main_socket.close()
                     return
             except SSL.SysCallError:
-                print('sending connection broke')
+                print('Sending connection broke')
                 return
             except Exception as e:
-                print('\nAn error occurred in message sending:', e)
+                print('\nAn error occurred while sending a message:', e)
                 main_socket.close()
                 return
 
@@ -247,7 +253,7 @@ def thread_receiving():
             main_socket.close()
             return
         except Exception as e:
-            print('\nAn error while handling a message:', e)
+            print('\nAn error occurred while handling a message:', e)
             main_socket.close()
             return
 
