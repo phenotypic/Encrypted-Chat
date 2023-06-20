@@ -94,7 +94,7 @@ if args.mode in [0, 1]:
         main_socket, acting_server = create_socket_connection(secure_context, 'client')
     except socket.error:
         if args.mode == 0:
-            print('\nTarget is not available, starting listening server on port', str(args.port) + '...')
+            print(f'\nTarget is not available, starting listening server on port {args.port}...')
             main_socket, acting_server = create_socket_connection(secure_context, 'server')
         elif args.mode == 1:
             print('\nTarget is not available, exiting...')
@@ -245,7 +245,7 @@ def thread_receiving():
                 print('\n\nPeer left the chat, exiting...\n')
                 main_socket.close()
                 return
-            print('\nReceived (' + print_time() + '):', message)
+            print(f'\nReceived ({print_time()}): {message}')
             print('\nWrite a message: ', end='')
         except SSL.SysCallError:
             print('\nConnection broke, exiting...\n')
