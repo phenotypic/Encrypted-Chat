@@ -182,8 +182,10 @@ def encrypt_message(message):
     iv = b64encode(cipher.nonce).decode()
     ct = b64encode(ct_bytes).decode()
     tag = b64encode(cipher.digest()).decode()
-    result = json.dumps({'iv': iv, 'ciphertext': ct, 'tag': tag})
-    return result.encode()
+    encrypted_message = json.dumps({'iv': iv, 'ciphertext': ct, 'tag': tag}).encode()
+    # Prefix encrypted message with a 4-byte length (network byte order)
+    result = struct.pack('>I', len(encrypted_message)) + encrypted_message
+    return result
 
 # AES message decryption
 def decrypt_message(json_input):
@@ -220,10 +222,7 @@ def thread_sending():
         message_to_send = input('\nWrite a message: ')
         if message_to_send:
             try:
-                encrypted_message = encrypt_message(message_to_send)
-                # Prefix each message with a 4-byte length (network byte order)
-                prefixed_message = struct.pack('>I', len(encrypted_message)) + encrypted_message
-                main_socket.sendall(prefixed_message)
+                main_socket.sendall(encrypt_message(message_to_send))
                 print('Sent', print_time())
                 if message_to_send == '/quit':
                     print('\nEnding the chat...')
