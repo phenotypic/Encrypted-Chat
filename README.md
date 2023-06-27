@@ -31,9 +31,9 @@ Here are some flags you can add:
 | Flag | Description |
 | --- | --- |
 | `-i <ip>` | IP: server IP address (defaults to local IP) |
-| `-p <port>` | Port: server listen port (defaults to 8000) |
+| `-p <port>` | Port: server listen port (defaults to `8000`) |
 | `-t <ip>` | Target: target IP address |
-| `-r <port>` | Remote: target port (defaults to 8000) |
+| `-r <port>` | Remote: target port (defaults to `8000`) |
 | `-m <mode>` | Mode: connection mode: automatic (default) `0`, client `1`, server `2` |
 | `-k <path>` | Key: path to SSL private key file |
 | `-c <path>` | Certificate: path to SSL certificate file |
