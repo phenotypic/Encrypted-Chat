@@ -46,4 +46,4 @@ When a user submits a message, it is encrypted using [AES-256](https://en.wikipe
 
 ## Notes
 
-- By default, the script generates self-signed SSL certificates. While these certificates offer the benefits of SSL/TLS encryption, they cannot be automatically verified since they are not issued by recognized Certificate Authorities (CA). As such, it is important to manually validate your peer's public key.
+- By default, the script generates self-signed SSL certificates. While these certificates offer the benefits of SSL/TLS encryption, they cannot be automatically verified since they are not issued by recognised Certificate Authorities (CA). As such, it is important to manually validate your peer's public key.
