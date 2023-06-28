@@ -133,18 +133,16 @@ try:
         salt = os.urandom(16)
         pubKey = privKey * curve.g
         main_socket.send(salt + send_key(pubKey))
-        ciphertextPubKey = receive_key(main_socket.recv(256))
-        sharedECDHKey = ciphertextPubKey * privKey
-        keys_table.add_row([hex_key(pubKey), hex_key(ciphertextPubKey)])
+        receivePubKey = receive_key(main_socket.recv(256))
+        keys_table.add_row([hex_key(pubKey), hex_key(receivePubKey)])
     else:
         received = main_socket.recv(256)
         salt = received[:16]
-        pubKey = receive_key(received[16:])
-        ciphertextPrivKey = secrets.randbelow(curve.field.n)
-        ciphertextPubKey = ciphertextPrivKey * curve.g
-        sharedECDHKey = pubKey * ciphertextPrivKey
-        main_socket.send(send_key(ciphertextPubKey))
-        keys_table.add_row([hex_key(ciphertextPubKey), hex_key(pubKey)])
+        receivePubKey = receive_key(received[16:])
+        pubKey = privKey * curve.g
+        main_socket.send(send_key(pubKey))
+        keys_table.add_row([hex_key(pubKey), hex_key(receivePubKey)])
+    sharedECDHKey = receivePubKey * privKey
 except Exception as e:
     print('\nAn error occurred during the key exchange:', e)
     main_socket.close()
