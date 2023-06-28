@@ -129,16 +129,15 @@ curve = registry.get_curve('brainpoolP256r1')
 # Perform the ECDH key exchange
 try:
     privKey = secrets.randbelow(curve.field.n)
+    pubKey = privKey * curve.g
     if acting_server:
         salt = os.urandom(16)
-        pubKey = privKey * curve.g
         main_socket.send(salt + send_key(pubKey))
         peerPubKey = receive_key(main_socket.recv(256))
     else:
         received = main_socket.recv(256)
         salt = received[:16]
         peerPubKey = receive_key(received[16:])
-        pubKey = privKey * curve.g
         main_socket.send(send_key(pubKey))
     keys_table.add_row([hex_key(pubKey), hex_key(peerPubKey)])
     sharedECDHKey = peerPubKey * privKey
