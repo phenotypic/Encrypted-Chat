@@ -35,7 +35,7 @@ try:
 except:
     print('Error retrieving IP address from host name, please try again...')
     quit()
-print(f'Target address: {server_address}:{args.port}')
+print(f'Hosting address: {server_address}:{args.port}')
 
 # If no target IP is provided, ask the user to input it
 if not args.target:
