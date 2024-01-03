@@ -41,7 +41,7 @@ print(f'Host address: {server_address}:{args.port}')
 if not args.target:
     target_ip, *target_port = input('Input target address: ').split(':')
     args.target = target_ip
-    args.remote = target_port[0] if target_port else args.remote
+    args.remote = int(target_port[0]) if target_port else args.remote
 print(f'Target address: {args.target}:{args.remote}')
 
 # Set up SSL context
@@ -219,7 +219,7 @@ def thread_sending():
         if message_to_send:
             try:
                 main_socket.sendall(encrypt_message(message_to_send))
-                print('Sent', print_time())
+                print(f'Sent ({print_time()}): {message_to_send}')
                 if message_to_send == '/quit':
                     print('\nEnding the chat...')
                     main_socket.close()
