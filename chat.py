@@ -106,6 +106,25 @@ else:
 
 print(line_print)
 
+def recv_msg():
+    # Read message length and unpack it into an integer
+    raw_msglen = recvall(4)
+    if not raw_msglen:
+        return None
+    msglen = struct.unpack('>I', raw_msglen)[0]
+    # Read the message data
+    return recvall(msglen)
+
+# Helper function to recv n bytes or return None if EOF is hit
+def recvall(n):
+    data = bytearray()
+    while len(data) < n:
+        packet = main_socket.recv(n - len(data))
+        if not packet:
+            return None
+        data.extend(packet)
+    return data
+
 # Derive encryption key from shared secret
 def derive_key(shared_secret):
     hkdf = HKDF(
@@ -132,13 +151,15 @@ def exchange_keys(handshake_initiator):
     # Exchange random salt and public keys
     if handshake_initiator:
         salt = os.urandom(16)
-        main_socket.send(salt + public_key_bytes)
-        peer_public_key_bytes = main_socket.recv(256)
+        combined_salt_pubkey = salt + public_key_bytes
+        main_socket.sendall(struct.pack('>I', len(combined_salt_pubkey)) + combined_salt_pubkey)
+        peer_public_key_bytes = recv_msg()
     else:
-        received = main_socket.recv(256)
+        received = recv_msg()
         salt = received[:16]
         peer_public_key_bytes = received[16:]
-        main_socket.send(public_key_bytes)
+        result = struct.pack('>I', len(public_key_bytes)) + public_key_bytes
+        main_socket.sendall(result)
 
     # Deserialize the peer's public key
     peer_public_key = serialization.load_pem_public_key(
@@ -189,25 +210,6 @@ def decrypt(encrypted_message, key):
     nonce = encrypted_message[:12]
     plaintext = aead_cipher.decrypt(nonce, encrypted_message[12:]).decode()
     return plaintext
-
-def recv_msg():
-    # Read message length and unpack it into an integer
-    raw_msglen = recvall(4)
-    if not raw_msglen:
-        return None
-    msglen = struct.unpack('>I', raw_msglen)[0]
-    # Read the message data
-    return recvall(msglen)
-
-# Helper function to recv n bytes or return None if EOF is hit
-def recvall(n):
-    data = bytearray()
-    while len(data) < n:
-        packet = main_socket.recv(n - len(data))
-        if not packet:
-            return None
-        data.extend(packet)
-    return data
 
 # Thread for sending messages
 def thread_sending():
