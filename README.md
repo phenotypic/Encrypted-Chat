@@ -2,7 +2,7 @@
 
 P2P-E2E-Encryption-Chat showcases a practical implementation of end-to-end encryption to establish a secure peer-to-peer communication channel using Python.
 
-The application uses TLS/SSL for socket encryption, Elliptic Curve Diffie-Hellman (ECDH) for secure key exchange, HKDF-SHA384 for key derivation, and ChaCha20-Poly1305 for end-to-end message encryption.
+The application uses TLS/SSL for socket encryption, Elliptic Curve Diffie-Hellman (ECDH) for secure key exchange, HKDF-SHA384 for key derivation, and ChaCha20-Poly1305 for message encryption.
 
 ## Usage
 
