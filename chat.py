@@ -16,7 +16,6 @@ parser.add_argument('-i', '--ip', type=str, help='server IP address (defaults to
 parser.add_argument('-p', '--port', type=int, help='server listen port (defaults to 8000)', default=8000)
 parser.add_argument('-t', '--target', type=str, help='target IP address')
 parser.add_argument('-r', '--remote', type=int, help='target port (defaults to 8000)', default=8000)
-parser.add_argument('-m', '--mode', choices=[0, 1, 2], help='connection mode: automatic (default) 0, client 1 server 2', default=0)
 parser.add_argument('-k', '--key', type=str, help='path to SSL private key file')
 parser.add_argument('-c', '--cert', type=str, help='path to SSL certificate file')
 args = parser.parse_args()
@@ -91,17 +90,10 @@ def create_socket_connection(context, connection_type):
     return socket_connection, handshake_initiator
 
 # Establish peer-to-peer connection
-if args.mode in [0, 1]:
-    try:
-        main_socket, handshake_initiator = create_socket_connection(secure_context, 'client')
-    except socket.error:
-        if args.mode == 0:
-            print(f'\nTarget is not available, starting listening server on port {args.port}...')
-            main_socket, handshake_initiator = create_socket_connection(secure_context, 'server')
-        elif args.mode == 1:
-            print('\nTarget is not available, exiting...')
-            quit()
-else:
+try:
+    main_socket, handshake_initiator = create_socket_connection(secure_context, 'client')
+except socket.error:
+    print(f'\nTarget is not available, starting listening server on port {args.port}...')
     main_socket, handshake_initiator = create_socket_connection(secure_context, 'server')
 
 print(line_print)
