@@ -1,13 +1,15 @@
-import socket, threading, secrets, json, os, argparse, struct
+import socket, threading, os, argparse, struct
 from prettytable import PrettyTable
 from pyfiglet import Figlet
-from tinyec import registry, ec
 from datetime import datetime
-from base64 import b64encode, b64decode
+from hashlib import sha256
 from OpenSSL import crypto, SSL
-from Crypto.Cipher import AES
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives import serialization
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--ip', type=str, help='server IP address (defaults to local IP)')
@@ -25,9 +27,9 @@ print('\n\n' + Figlet(font='big', justify='center').renderText('P2P Chat'))
 line_print = '-' * os.get_terminal_size().columns
 print(line_print)
 
-# Function to print the current date and time
+# Function to print the current time
 def print_time():
-    return datetime.now().strftime('%d/%m/%y %H:%M')
+    return datetime.now().strftime('%H:%M')
 
 # Try to set the server address, defaulting to the local IP if no IP is provided
 try:
@@ -78,120 +80,115 @@ def create_socket_connection(context, connection_type):
     if connection_type == 'client':
         socket_connection.connect((args.target, args.remote))
         print(f'\nConnected as a client to: {socket_connection.getsockname()[0]} ({print_time()})')
-        acting_server = False
+        handshake_initiator = False
     else:
         socket_connection.bind((server_address, args.port))
         socket_connection.listen(1)
         socket_connection, client_address = socket_connection.accept()
         print(f'\nServer received connection from: {client_address[0]} ({print_time()})')
-        acting_server = True
+        handshake_initiator = True
 
-    return socket_connection, acting_server
+    return socket_connection, handshake_initiator
 
 # Establish peer-to-peer connection
 if args.mode in [0, 1]:
     try:
-        main_socket, acting_server = create_socket_connection(secure_context, 'client')
+        main_socket, handshake_initiator = create_socket_connection(secure_context, 'client')
     except socket.error:
         if args.mode == 0:
             print(f'\nTarget is not available, starting listening server on port {args.port}...')
-            main_socket, acting_server = create_socket_connection(secure_context, 'server')
+            main_socket, handshake_initiator = create_socket_connection(secure_context, 'server')
         elif args.mode == 1:
             print('\nTarget is not available, exiting...')
             quit()
 else:
-    main_socket, acting_server = create_socket_connection(secure_context, 'server')
+    main_socket, handshake_initiator = create_socket_connection(secure_context, 'server')
 
 print(line_print)
 
-# ECC key serialisation
-def send_key(key):
-    data = {'x': str(key.x), 'y': str(key.y)}
-    json_data = json.dumps(data).encode()
-    return json_data
+# Derive encryption key from shared secret
+def derive_key(shared_secret):
+    hkdf = HKDF(
+        algorithm=hashes.SHA384(),
+        length=32,
+        salt=None,
+        info=b'handshake data',
+        backend=default_backend()
+    )
+    return hkdf.derive(shared_secret)
 
-# ECC key deserialisation
-def receive_key(json_data):
-    data = json.loads(json_data.decode())
-    key = ec.Point(curve, int(data['x']), int(data['y']))
-    return key
+# Function to exchange keys
+def exchange_keys(handshake_initiator):
+    # Generate key pair
+    private_key = ec.generate_private_key(ec.SECP384R1(), default_backend())
+    public_key = private_key.public_key()
 
-# Display a hex representation of the ECC key
-def hex_key(key):
-    key_material = int.to_bytes(key.x, 32, 'big') + int.to_bytes(key.y, 32, 'big')
-    return key_material.hex()
+    # Serialize the public key to bytes
+    public_key_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
 
-keys_table = PrettyTable(['Your public key', 'Peer\'s public key'], max_width=32)
-
-# Get the curve
-curve = registry.get_curve('brainpoolP256r1')
-
-# Perform the ECDH key exchange
-try:
-    privKey = secrets.randbelow(curve.field.n)
-    pubKey = privKey * curve.g
-    if acting_server:
+    # Exchange random salt and public keys
+    if handshake_initiator:
         salt = os.urandom(16)
-        main_socket.send(salt + send_key(pubKey))
-        peerPubKey = receive_key(main_socket.recv(256))
+        main_socket.send(salt + public_key_bytes)
+        peer_public_key_bytes = main_socket.recv(256)
     else:
         received = main_socket.recv(256)
         salt = received[:16]
-        peerPubKey = receive_key(received[16:])
-        main_socket.send(send_key(pubKey))
-    keys_table.add_row([hex_key(pubKey), hex_key(peerPubKey)])
-    sharedECDHKey = peerPubKey * privKey
-except Exception as e:
-    print('\nAn error occurred during the key exchange:', e)
-    main_socket.close()
-    quit()
+        peer_public_key_bytes = received[16:]
+        main_socket.send(public_key_bytes)
 
+    # Deserialize the peer's public key
+    peer_public_key = serialization.load_pem_public_key(
+        peer_public_key_bytes,
+        backend=default_backend()
+    )
+
+    # Derive the encryption key
+    shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
+    encryption_key = derive_key(shared_secret)
+    return encryption_key, public_key_bytes, peer_public_key_bytes
+
+# Exchange keys
+encryption_key, public_key_bytes, peer_public_key_bytes = exchange_keys(handshake_initiator)
+
+# Print the public keys
 print('Key exchange completed')
 print('\nVerify public keys using out-of-band communication:')
+keys_table = PrettyTable(['Your public key', 'Peer\'s public key'], max_width=32)
+keys_table.add_row([sha256(public_key_bytes).hexdigest(), sha256(peer_public_key_bytes).hexdigest()])
 print(keys_table)
 print(line_print)
-
-# Derive the AES key from the shared key
-hkdf = HKDF(
-    algorithm = hashes.SHA256(),
-    length = 32,
-    salt = salt,
-    info = b'chat data',
-)
-key_material = int.to_bytes(sharedECDHKey.x, 32, 'big') + int.to_bytes(sharedECDHKey.y, 32, 'big')
-aes_key = hkdf.derive(key_material)
 
 # Print details about the encryption setup
 print('Chat is now end-to-end encrypted:\n')
 print('- Socket wrapper:                 Secure Sockets Layer (SSL)')
 print('- Key exchange scheme:            Elliptic Curve Diffie-Hellman (ECDH)')
 print('- Elliptic curve:                 brainpoolP256r1')
-print('- Key derivation function:        HKDF-SHA256')
-print('- Symmetric encryption algorithm: AES-256-GCM (Galois/Counter Mode)')
+print('- Key derivation function:        HKDF-SHA384')
+print('- Symmetric encryption algorithm: ChaCha20-Poly1305')
 print('\nExit by typing /quit')
 print(line_print)
 
-# AES message encryption
-def encrypt_message(message):
-    cipher = AES.new(aes_key, AES.MODE_GCM)
-    ct_bytes = cipher.encrypt(message.encode())
-    iv = b64encode(cipher.nonce).decode()
-    ct = b64encode(ct_bytes).decode()
-    tag = b64encode(cipher.digest()).decode()
-    encrypted_message = json.dumps({'iv': iv, 'ciphertext': ct, 'tag': tag}).encode()
+# Encryption function
+def encrypt(message, key):
+    # Encrypt the message using the derived key
+    aead_cipher = ChaCha20Poly1305(key)
+    nonce = os.urandom(12)
+    encrypted_message = aead_cipher.encrypt(nonce, message.encode())
+    encrypted_message = nonce + encrypted_message
     # Prefix encrypted message with a 4-byte length (network byte order)
     result = struct.pack('>I', len(encrypted_message)) + encrypted_message
     return result
 
-# AES message decryption
-def decrypt_message(json_input):
-    b64 = json.loads(json_input.decode())
-    iv = b64decode(b64['iv'])
-    ct = b64decode(b64['ciphertext'])
-    tag = b64decode(b64['tag'])
-    cipher = AES.new(aes_key, AES.MODE_GCM, nonce=iv)
-    plain_text = cipher.decrypt_and_verify(ct, tag)
-    return plain_text.decode()
+# Decryption function
+def decrypt(encrypted_message, key):
+    aead_cipher = ChaCha20Poly1305(key)
+    nonce = encrypted_message[:12]
+    plaintext = aead_cipher.decrypt(nonce, encrypted_message[12:]).decode()
+    return plaintext
 
 def recv_msg():
     # Read message length and unpack it into an integer
@@ -218,7 +215,7 @@ def thread_sending():
         message_to_send = input('\nWrite a message: ')
         if message_to_send:
             try:
-                main_socket.sendall(encrypt_message(message_to_send))
+                main_socket.sendall(encrypt(message_to_send, encryption_key))
                 print(f'Sent ({print_time()}): {message_to_send}')
                 if message_to_send == '/quit':
                     print('\nEnding the chat...')
@@ -236,7 +233,7 @@ def thread_sending():
 def thread_receiving():
     while True:
         try:
-            message = decrypt_message(recv_msg())
+            message = decrypt(recv_msg(), encryption_key)
             if message == '/quit':
                 print('\n\nPeer left the chat, exiting...\n')
                 main_socket.close()
