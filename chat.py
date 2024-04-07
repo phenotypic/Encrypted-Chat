@@ -98,6 +98,11 @@ except socket.error:
 
 print(line_print)
 
+# Helper function to send a message with a 4-byte length prefix (network byte order). Accepts bytes.
+def send_msg(message):
+    result = struct.pack('>I', len(message)) + message
+    main_socket.sendall(result)
+
 def recv_msg():
     # Read message length and unpack it into an integer
     raw_msglen = recvall(4)
@@ -143,15 +148,13 @@ def exchange_keys(handshake_initiator):
     # Exchange random salt and public keys
     if handshake_initiator:
         salt = os.urandom(16)
-        combined_salt_pubkey = salt + public_key_bytes
-        main_socket.sendall(struct.pack('>I', len(combined_salt_pubkey)) + combined_salt_pubkey)
+        send_msg(salt + public_key_bytes)
         peer_public_key_bytes = recv_msg()
     else:
         received = recv_msg()
         salt = received[:16]
         peer_public_key_bytes = received[16:]
-        result = struct.pack('>I', len(public_key_bytes)) + public_key_bytes
-        main_socket.sendall(result)
+        send_msg(public_key_bytes)
 
     # Deserialize the peer's public key
     peer_public_key = serialization.load_pem_public_key(
@@ -179,24 +182,22 @@ print(line_print)
 print('Chat is now end-to-end encrypted:\n')
 print('- Socket wrapper:                 Secure Sockets Layer (SSL)')
 print('- Key exchange scheme:            Elliptic Curve Diffie-Hellman (ECDH)')
-print('- Elliptic curve:                 brainpoolP256r1')
+print('- Elliptic curve:                 NIST P-384')
 print('- Key derivation function:        HKDF-SHA384')
 print('- Symmetric encryption algorithm: ChaCha20-Poly1305')
 print('\nExit by typing /quit')
 print(line_print)
 
-# Encryption function
+# Encryption function. Accepts a message (string) and a key
 def encrypt(message, key):
     # Encrypt the message using the derived key
     aead_cipher = ChaCha20Poly1305(key)
     nonce = os.urandom(12)
     encrypted_message = aead_cipher.encrypt(nonce, message.encode())
     encrypted_message = nonce + encrypted_message
-    # Prefix encrypted message with a 4-byte length (network byte order)
-    result = struct.pack('>I', len(encrypted_message)) + encrypted_message
-    return result
+    return encrypted_message
 
-# Decryption function
+# Decryption function. Accepts an encrypted message (bytes) and a key
 def decrypt(encrypted_message, key):
     aead_cipher = ChaCha20Poly1305(key)
     nonce = encrypted_message[:12]
@@ -209,7 +210,7 @@ def thread_sending():
         message_to_send = input('\nWrite a message: ')
         if message_to_send:
             try:
-                main_socket.sendall(encrypt(message_to_send, encryption_key))
+                send_msg(encrypt(message_to_send, encryption_key))
                 print(f'Sent ({print_time()}): {message_to_send}')
                 if message_to_send == '/quit':
                     print('\nEnding the chat...')
