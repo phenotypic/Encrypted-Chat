@@ -45,4 +45,4 @@ When a user submits a message, it is encrypted using [ChaCha20-Poly1305](https:/
 
 ## Notes
 
-- By default, the script generates self-signed SSL certificates. While these certificates offer the benefits of SSL/TLS encryption, they cannot be automatically verified since they are not issued by recognised Certificate Authorities (CA). As such, it is important to manually validate your peer's public key.
+- By default, the script generates self-signed SSL certificates. While these certificates offer the benefits of SSL/TLS encryption, they cannot be automatically verified since they are not issued by a recognised Certificate Authority. As such, it is important to manually validate your peer's public key using using out-of-band communication to protect against man-in-the-middle attacks.
