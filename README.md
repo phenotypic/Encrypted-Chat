@@ -1,6 +1,6 @@
-# P2P-E2E-Encryption-Chat
+# Encrypted-Chat
 
-P2P-E2E-Encryption-Chat showcases a practical implementation of end-to-end encryption to establish a secure peer-to-peer communication channel using Python.
+This project showcases a practical implementation of end-to-end encryption to establish a secure peer-to-peer communication channel using Python.
 
 The application uses TLS/SSL for socket encryption, Elliptic Curve Diffie-Hellman (ECDH) for secure key exchange, HKDF-SHA384 for key derivation, and ChaCha20-Poly1305 for message encryption.
 
@@ -8,12 +8,12 @@ The application uses TLS/SSL for socket encryption, Elliptic Curve Diffie-Hellma
 
 Clone the repository:
 ```
-git clone https://github.com/phenotypic/P2P-E2E-Encryption-Chat.git
+git clone https://github.com/phenotypic/Encrypted-Chat.git
 ```
 
 Change to the project directory:
 ```
-cd P2P-E2E-Encryption-Chat
+cd Encrypted-Chat
 ```
 
 Install dependencies:
