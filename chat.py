@@ -77,13 +77,14 @@ else:
     secure_context.use_certificate(cert)
 
 # Establish peer-to-peer connection
-main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
 try:
+    main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
     main_socket.connect((args.target, args.remote))
     print(f'\nConnected as a client to: {main_socket.getsockname()[0]} ({print_time('seconds')})')
     handshake_initiator = False
 except socket.error:
     print(f'\nTarget is not available, starting listening server on port {args.port}...')
+    main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
     main_socket.bind((server_address, args.port))
     main_socket.listen(1)
     main_socket, client_address = main_socket.accept()
@@ -146,7 +147,7 @@ def exchange_keys(handshake_initiator):
         peer_public_key_bytes = recv_msg()
     else:
         received = recv_msg()
-        salt = received[:16]
+        salt = bytes(received[:16])
         peer_public_key_bytes = received[16:]
         send_msg(public_key_bytes)
 
