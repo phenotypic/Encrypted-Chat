@@ -27,8 +27,11 @@ line_print = '-' * os.get_terminal_size().columns
 print(line_print)
 
 # Function to print the current time
-def print_time():
-    return datetime.now().strftime('%H:%M')
+def print_time(resolution):
+    if resolution == 'seconds':
+        return datetime.now().strftime('%H:%M:%S')
+    else:
+        return datetime.now().strftime('%H:%M')
 
 # Try to set the server address, defaulting to the local IP if no IP is provided
 try:
@@ -36,7 +39,7 @@ try:
 except:
     print('Error retrieving IP address from host name, please try again...')
     quit()
-print(f'Host address: {server_address}:{args.port}')
+print(f'Local host address: {server_address}:{args.port}')
 
 # If no target IP is provided, ask the user to input it
 if not args.target:
@@ -73,28 +76,19 @@ else:
     secure_context.use_privatekey(keypair)
     secure_context.use_certificate(cert)
 
-# Create a new SSL socket connection
-def create_socket_connection(context, connection_type):
-    socket_connection = SSL.Connection(context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-    if connection_type == 'client':
-        socket_connection.connect((args.target, args.remote))
-        print(f'\nConnected as a client to: {socket_connection.getsockname()[0]} ({print_time()})')
-        handshake_initiator = False
-    else:
-        socket_connection.bind((server_address, args.port))
-        socket_connection.listen(1)
-        socket_connection, client_address = socket_connection.accept()
-        print(f'\nServer received connection from: {client_address[0]} ({print_time()})')
-        handshake_initiator = True
-
-    return socket_connection, handshake_initiator
-
 # Establish peer-to-peer connection
+main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
 try:
-    main_socket, handshake_initiator = create_socket_connection(secure_context, 'client')
+    main_socket.connect((args.target, args.remote))
+    print(f'\nConnected as a client to: {main_socket.getsockname()[0]} ({print_time('seconds')})')
+    handshake_initiator = False
 except socket.error:
     print(f'\nTarget is not available, starting listening server on port {args.port}...')
-    main_socket, handshake_initiator = create_socket_connection(secure_context, 'server')
+    main_socket.bind((server_address, args.port))
+    main_socket.listen(1)
+    main_socket, client_address = main_socket.accept()
+    print(f'\nServer received connection from: {client_address[0]} ({print_time('seconds')})')
+    handshake_initiator = True
 
 print(line_print)
 
@@ -123,11 +117,11 @@ def recvall(n):
     return data
 
 # Derive encryption key from shared secret
-def derive_key(shared_secret):
+def derive_key(shared_secret, salt):
     hkdf = HKDF(
         algorithm=hashes.SHA384(),
         length=32,
-        salt=None,
+        salt=salt,
         info=b'handshake data',
         backend=default_backend()
     )
@@ -164,27 +158,27 @@ def exchange_keys(handshake_initiator):
 
     # Derive the encryption key
     shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
-    encryption_key = derive_key(shared_secret)
+    encryption_key = derive_key(shared_secret, salt)
     return encryption_key, public_key_bytes, peer_public_key_bytes
 
 # Exchange keys
 encryption_key, public_key_bytes, peer_public_key_bytes = exchange_keys(handshake_initiator)
 
 # Print the public keys
-print('Key exchange completed')
-print('\nVerify public keys using out-of-band communication:')
-keys_table = PrettyTable(['Your public key', 'Peer\'s public key'], max_width=32)
+print(f'Key exchange completed ({print_time('seconds')})')
+print('\nVerify public key hashes using out-of-band communication:')
+keys_table = PrettyTable(['Your Public Key Hash', 'Peer\'s Public Key Hash'], max_width=32)
 keys_table.add_row([sha256(public_key_bytes).hexdigest(), sha256(peer_public_key_bytes).hexdigest()])
 print(keys_table)
 print(line_print)
 
 # Print details about the encryption setup
 print('Chat is now end-to-end encrypted:\n')
-print('- Socket wrapper:                 Secure Sockets Layer (SSL)')
-print('- Key exchange scheme:            Elliptic Curve Diffie-Hellman (ECDH)')
-print('- Elliptic curve:                 NIST P-384')
-print('- Key derivation function:        HKDF-SHA384')
-print('- Symmetric encryption algorithm: ChaCha20-Poly1305')
+print('- Socket wrapper :  Secure Sockets Layer (SSL)')
+print('- Key exchange   :  Elliptic Curve Diffie-Hellman (ECDH)')
+print('- Elliptic curve :  NIST P-384 (secp256r1)')
+print('- Key derivation :  HKDF-SHA384')
+print('- Encryption     :  ChaCha20-Poly1305')
 print('\nExit by typing /quit')
 print(line_print)
 
@@ -211,7 +205,7 @@ def thread_sending():
         if message_to_send:
             try:
                 send_msg(encrypt(message_to_send, encryption_key))
-                print(f'Sent ({print_time()}): {message_to_send}')
+                print(f'Sent ({print_time('minutes')}): {message_to_send}')
                 if message_to_send == '/quit':
                     print('\nEnding the chat...')
                     main_socket.close()
@@ -233,7 +227,7 @@ def thread_receiving():
                 print('\n\nPeer left the chat, exiting...\n')
                 main_socket.close()
                 return
-            print(f'\nReceived ({print_time()}): {message}')
+            print(f'\nReceived ({print_time('minutes')}): {message}')
             print('\nWrite a message: ', end='')
         except SSL.SysCallError:
             print('\nConnection broke, exiting...\n')
