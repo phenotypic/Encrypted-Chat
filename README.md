@@ -1,8 +1,10 @@
 # Encrypted-Chat
 
-This project showcases a practical implementation of end-to-end encryption to establish a secure peer-to-peer communication channel using Python. Forward secrecy is maintained by generating new key pairs for each message exchange, ensuring that the compromise of a single key does not jeopardize past or future communications.
+This project showcases a practical implementation of end-to-end encryption to establish a secure peer-to-peer communication channel using Python.
 
 The application uses TLS/SSL for socket encryption, Elliptic Curve Diffie-Hellman (ECDH) for secure key exchange, HKDF-SHA384 for key derivation, and ChaCha20-Poly1305 for message encryption.
+
+Forward secrecy is maintained by generating new key pairs for each message exchange, ensuring that the compromise of a single key does not jeopardize past or future communications.
 
 ## Usage
 
