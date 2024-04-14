@@ -153,29 +153,22 @@ def derive_key(key_material, salt, info):
     )
     return hkdf.derive(key_material)
 
-# Function to exchange keys
-def exchange_keys(initiate_handshake):
-    # Generate key pair
-    private_key, public_key_bytes = generate_key_pair()
+# Generate key pair
+private_key, public_key_bytes = generate_key_pair()
 
-    # Exchange random salt and public keys
-    if initiate_handshake:
-        salt = os.urandom(16)
-        send_bytes(salt + public_key_bytes)
-        peer_public_key_bytes = recv_bytes()
-    else:
-        received = recv_bytes()
-        salt = bytes(received[:16])
-        peer_public_key_bytes = received[16:]
-        send_bytes(public_key_bytes)
+# Exchange random salt and public keys
+if initiate_handshake:
+    salt = os.urandom(16)
+    send_bytes(salt + public_key_bytes)
+    peer_public_key_bytes = recv_bytes()
+else:
+    received = recv_bytes()
+    salt = bytes(received[:16])
+    peer_public_key_bytes = received[16:]
+    send_bytes(public_key_bytes)
 
-    # Derive the encryption key
-    encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
-    
-    return encryption_key, public_key_bytes, peer_public_key_bytes
-
-# Exchange keys
-encryption_key, public_key_bytes, peer_public_key_bytes = exchange_keys(initiate_handshake)
+# Derive the encryption key
+encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
 
 # Print the public keys
 print(f'Key exchange completed ({print_time('seconds')})')
