@@ -1,6 +1,6 @@
 # Encrypted-Chat
 
-This project showcases a practical implementation of end-to-end encryption to establish a secure peer-to-peer communication channel using Python.
+This project showcases a practical implementation of end-to-end encryption to establish a secure peer-to-peer communication channel using Python. Forward secrecy is maintained by generating new key pairs for each message exchange, ensuring that the compromise of a single key does not jeopardize past or future communications.
 
 The application uses TLS/SSL for socket encryption, Elliptic Curve Diffie-Hellman (ECDH) for secure key exchange, HKDF-SHA384 for key derivation, and ChaCha20-Poly1305 for message encryption.
 
@@ -39,10 +39,8 @@ Here are some flags you can add:
 
 After the target's IP and port have been determined, the script will generate self-signed SSL certificates (unless key/certificate files are passed as arguments) and attempt to establish a connection with the target. If this fails, the script will open a listen server and await a connection.
 
-Once a secure TLS/SSL connection is established, the peers perform an [Elliptic Curve Diffie-Hellman (ECDH)](https://cryptobook.nakov.com/asymmetric-key-ciphers/ecc-encryption-decryption) key exchange using the [NIST P-384](https://en.wikipedia.org/wiki/P-384) curve. Once the key exchange has been completed, users should compare the public keys using out-of-band communication where possible to protect against man-in-the-middle attacks (see [notes](#notes)). The peers then pass their shared secret through a [HKDF-SHA384](https://en.wikipedia.org/wiki/HKDF) key derivation function to generate symmetric encryption keys.
+Once a secure TLS/SSL connection is established, the peers perform an [Elliptic Curve Diffie-Hellman (ECDH)](https://cryptobook.nakov.com/asymmetric-key-ciphers/ecc-encryption-decryption) key exchange using the [NIST P-384](https://en.wikipedia.org/wiki/P-384) curve to generate ephemeral keys. The peers then pass their shared secret through a [HKDF-SHA384](https://en.wikipedia.org/wiki/HKDF) key derivation function to generate symmetric encryption keys. This process is repeated for each message to ensure [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
 
 When a user submits a message, it is encrypted using [ChaCha20-Poly1305](https://en.wikipedia.org/wiki/ChaCha20-Poly1305). The ciphertext is prefixed with its byte length and sent over the TLS/SSL connection. On the receiving end, the message is buffered, decrypted, and verified (to protect against message tampering).
 
-## Notes
-
-- By default, the script generates self-signed SSL certificates. While these certificates offer the benefits of SSL/TLS encryption, they cannot be automatically verified since they are not issued by a recognised Certificate Authority. As such, it is important to manually validate your peer's public key using using out-of-band communication to protect against man-in-the-middle attacks.
+**Note:** By default, the script generates self-signed SSL certificates. While these certificates offer the benefits of SSL/TLS encryption, they cannot be automatically verified since they are not issued by a recognised Certificate Authority. As such, it is important to manually validate your peer's public key hash using using out-of-band communication to protect against man-in-the-middle attacks.
