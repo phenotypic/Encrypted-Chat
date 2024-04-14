@@ -141,14 +141,17 @@ def get_encryption_key(private_key, peer_public_key_bytes, salt):
     shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
 
     # Derive the encryption key
+    return derive_key(shared_secret, salt, info=b'encryption key')
+
+def derive_key(key_material, salt, info):
     hkdf = HKDF(
         algorithm=hashes.SHA384(),
         length=32,
         salt=salt,
-        info=b'handshake data',
+        info=info,
         backend=default_backend()
     )
-    return hkdf.derive(shared_secret)
+    return hkdf.derive(key_material)
 
 # Function to exchange keys
 def exchange_keys(initiate_handshake):
@@ -184,11 +187,12 @@ print(line_print)
 
 # Print details about the encryption setup
 print('Chat is now end-to-end encrypted:\n')
-print('- Socket wrapper :  Secure Sockets Layer (SSL)')
-print('- Key exchange   :  Elliptic Curve Diffie-Hellman (ECDH)')
-print('- Elliptic curve :  NIST P-384 (secp384r1)')
-print('- Key derivation :  HKDF-SHA384')
-print('- Encryption     :  ChaCha20-Poly1305')
+print('- Socket wrapper  :  Secure Sockets Layer (SSL)')
+print('- Key exchange    :  Elliptic Curve Diffie-Hellman (ECDH)')
+print('- Elliptic curve  :  NIST P-384 (secp384r1)')
+print('- Key derivation  :  HKDF-SHA384')
+print('- Encryption      :  ChaCha20-Poly1305')
+print('- Forward secrecy :  Enabled for each message')
 print('\nExit by typing /quit')
 print(line_print)
 
@@ -215,41 +219,64 @@ def send_encrypted_message(message):
     private_key, public_key_bytes = generate_key_pair()
     salt = os.urandom(16)
 
+    # Sub-saly for sub-key
+    sub_salt = os.urandom(16)
+
     # Construct JSON object
     construct = {
         'message': message,
         'salt': base64.b64encode(salt).decode(),
-        'key': base64.b64encode(public_key_bytes).decode()
+        'key': base64.b64encode(public_key_bytes).decode(),
+        'sub_salt': base64.b64encode(sub_salt).decode()
     }
     construct = json.dumps(construct)
 
     # Encrypt the message
-    encrypted_message = encrypt(construct.encode(), encryption_key)
-    send_bytes(bytes([0x00]) + encrypted_message)
+    encrypted_message = encrypt(bytes([0x00]) + construct.encode(), encryption_key)
+    send_bytes(encrypted_message)
 
-    # Receive the public key
-    peer_public_key_bytes = decrypt(message_queue.get(), encryption_key)
+    # Derive sub-key to handle DH response
+    encryption_key = derive_key(encryption_key, sub_salt, info=b'sub-key')
+
+    # Receive the public key (already decrypted by the time this is called)
+    peer_public_key_bytes = message_queue.get()
 
     # Derive the encryption key
     encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
 
-def recv_encrypted_message(encrypted_message):
+def recv_encrypted_message():
     global encryption_key
+
+    # Receive the message
+    encrypted_message = recv_bytes()
+
+    # Decrypt the message
+    incoming_message = decrypt(encrypted_message, encryption_key)
+
+    # Parse the message
+    message_type = incoming_message[0]
+    message = incoming_message[1:]
+
+    # Handle the message
+    if message_type == 0x01:
+        message_queue.put(message)
+        return None
 
     # Generate a new key pair
     private_key, public_key_bytes = generate_key_pair()
 
-    # Decrypt the message
-    construct = decrypt(encrypted_message, encryption_key)
-    
     # Parse the JSON object
-    construct = json.loads(construct.decode())
+    construct = json.loads(message.decode())
     message = construct['message']
     salt = base64.b64decode(construct['salt'])
     peer_public_key_bytes = base64.b64decode(construct['key'])
+    sub_salt = base64.b64decode(construct['sub_salt'])
 
-    # Send the public key
-    send_bytes(bytes([0x01]) + encrypt(public_key_bytes, encryption_key))
+    # Derive sub-key to handle DH response
+    encryption_key = derive_key(encryption_key, sub_salt, info=b'sub-key')
+
+    # Send the public key using the sub-key
+    send_bytes(encrypt(bytes([0x01]) + public_key_bytes, encryption_key))
 
     # Derive the encryption key
     encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
@@ -281,21 +308,14 @@ def thread_receiving():
     while True:
         try:
             # Receive the message
-            incoming_message = recv_bytes()
-            message_type = incoming_message[0]
-            message = incoming_message[1:]
-
-            # Handle the message
-            if message_type == 0x00:
-                plaintext = recv_encrypted_message(message)
-                if plaintext == '/quit':
+            message = recv_encrypted_message()
+            if message is not None:
+                if message == '/quit':
                     print('\n\nPeer left the chat, exiting...\n')
                     main_socket.close()
                     return
-                print(f'\nReceived ({print_time('minutes')}): {plaintext}')
+                print(f'\nReceived ({print_time('minutes')}): {message}')
                 print('\nWrite a message: ', end='')
-            elif message_type == 0x01:
-                message_queue.put(message)
         except SSL.SysCallError:
             print('\nConnection broke, exiting...\n')
             main_socket.close()
