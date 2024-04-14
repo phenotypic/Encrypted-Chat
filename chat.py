@@ -212,7 +212,7 @@ def send_encrypted_message(message):
     private_key, public_key_bytes = generate_key_pair()
     salt = os.urandom(16)
 
-    # Sub-saly for sub-key
+    # Sub-salt for sub-key
     sub_salt = os.urandom(16)
 
     # Construct JSON object
@@ -250,7 +250,7 @@ def recv_encrypted_message():
     message_type = incoming_message[0]
     message = incoming_message[1:]
 
-    # Handle the message
+    # Handle the message if it is a DH public key response
     if message_type == 0x01:
         message_queue.put(message)
         return None
