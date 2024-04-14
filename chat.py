@@ -1,4 +1,4 @@
-import socket, threading, os, argparse, struct
+import socket, os, argparse, struct, json, base64, threading, queue
 from prettytable import PrettyTable
 from pyfiglet import Figlet
 from datetime import datetime
@@ -81,7 +81,7 @@ try:
     main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
     main_socket.connect((args.target, args.remote))
     print(f'\nConnected as a client to: {main_socket.getsockname()[0]} ({print_time('seconds')})')
-    handshake_initiator = False
+    initiate_handshake = False
 except socket.error:
     print(f'\nTarget is not available, starting listening server on port {args.port}...')
     main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
@@ -89,16 +89,17 @@ except socket.error:
     main_socket.listen(1)
     main_socket, client_address = main_socket.accept()
     print(f'\nServer received connection from: {client_address[0]} ({print_time('seconds')})')
-    handshake_initiator = True
+    initiate_handshake = True
 
 print(line_print)
 
-# Helper function to send a message with a 4-byte length prefix (network byte order). Accepts bytes.
-def send_msg(message):
+# Helper function to send bytes with a 4-byte length prefix (network byte order)
+def send_bytes(message):
     result = struct.pack('>I', len(message)) + message
     main_socket.sendall(result)
 
-def recv_msg():
+# Helper function to receive bytes with a 4-byte length prefix (network byte order)
+def recv_bytes():
     # Read message length and unpack it into an integer
     raw_msglen = recvall(4)
     if not raw_msglen:
@@ -107,7 +108,7 @@ def recv_msg():
     # Read the message data
     return recvall(msglen)
 
-# Helper function to recv n bytes or return None if EOF is hit
+# Subfunction to receive all bytes for a given length
 def recvall(n):
     data = bytearray()
     while len(data) < n:
@@ -117,8 +118,29 @@ def recvall(n):
         data.extend(packet)
     return data
 
-# Derive encryption key from shared secret
-def derive_key(shared_secret, salt):
+def generate_key_pair():
+    private_key = ec.generate_private_key(ec.SECP384R1(), default_backend())
+    public_key = private_key.public_key()
+    
+    # Serialize the public key to bytes
+    public_key_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    return private_key, public_key_bytes
+
+def get_encryption_key(private_key, peer_public_key_bytes, salt):
+    # Deserialize the peer's public key
+    peer_public_key = serialization.load_pem_public_key(
+        peer_public_key_bytes,
+        backend=default_backend()
+    )
+
+    # Derive the shared secret
+    shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
+
+    # Derive the encryption key
     hkdf = HKDF(
         algorithm=hashes.SHA384(),
         length=32,
@@ -129,41 +151,28 @@ def derive_key(shared_secret, salt):
     return hkdf.derive(shared_secret)
 
 # Function to exchange keys
-def exchange_keys(handshake_initiator):
+def exchange_keys(initiate_handshake):
     # Generate key pair
-    private_key = ec.generate_private_key(ec.SECP384R1(), default_backend())
-    public_key = private_key.public_key()
-
-    # Serialize the public key to bytes
-    public_key_bytes = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
+    private_key, public_key_bytes = generate_key_pair()
 
     # Exchange random salt and public keys
-    if handshake_initiator:
+    if initiate_handshake:
         salt = os.urandom(16)
-        send_msg(salt + public_key_bytes)
-        peer_public_key_bytes = recv_msg()
+        send_bytes(salt + public_key_bytes)
+        peer_public_key_bytes = recv_bytes()
     else:
-        received = recv_msg()
+        received = recv_bytes()
         salt = bytes(received[:16])
         peer_public_key_bytes = received[16:]
-        send_msg(public_key_bytes)
-
-    # Deserialize the peer's public key
-    peer_public_key = serialization.load_pem_public_key(
-        peer_public_key_bytes,
-        backend=default_backend()
-    )
+        send_bytes(public_key_bytes)
 
     # Derive the encryption key
-    shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
-    encryption_key = derive_key(shared_secret, salt)
+    encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
+    
     return encryption_key, public_key_bytes, peer_public_key_bytes
 
 # Exchange keys
-encryption_key, public_key_bytes, peer_public_key_bytes = exchange_keys(handshake_initiator)
+encryption_key, public_key_bytes, peer_public_key_bytes = exchange_keys(initiate_handshake)
 
 # Print the public keys
 print(f'Key exchange completed ({print_time('seconds')})')
@@ -177,37 +186,85 @@ print(line_print)
 print('Chat is now end-to-end encrypted:\n')
 print('- Socket wrapper :  Secure Sockets Layer (SSL)')
 print('- Key exchange   :  Elliptic Curve Diffie-Hellman (ECDH)')
-print('- Elliptic curve :  NIST P-384 (secp256r1)')
+print('- Elliptic curve :  NIST P-384 (secp384r1)')
 print('- Key derivation :  HKDF-SHA384')
 print('- Encryption     :  ChaCha20-Poly1305')
 print('\nExit by typing /quit')
 print(line_print)
 
-# Encryption function. Accepts a message (string) and a key
+# Encryption function. Accepts a message (bytes) and a key, returns encrypted message (bytes)
 def encrypt(message, key):
     # Encrypt the message using the derived key
     aead_cipher = ChaCha20Poly1305(key)
     nonce = os.urandom(12)
-    encrypted_message = aead_cipher.encrypt(nonce, message.encode())
+    encrypted_message = aead_cipher.encrypt(nonce, message)
     encrypted_message = nonce + encrypted_message
     return encrypted_message
 
-# Decryption function. Accepts an encrypted message (bytes) and a key
+# Decryption function. Accepts an encrypted message (bytes) and a key, returns plaintext (bytes)
 def decrypt(encrypted_message, key):
     aead_cipher = ChaCha20Poly1305(key)
     nonce = encrypted_message[:12]
-    plaintext = aead_cipher.decrypt(nonce, encrypted_message[12:]).decode()
+    plaintext = aead_cipher.decrypt(nonce, encrypted_message[12:])
     return plaintext
+
+def send_encrypted_message(message):
+    global encryption_key
+
+    # Generate a new key pair and salt
+    private_key, public_key_bytes = generate_key_pair()
+    salt = os.urandom(16)
+
+    # Construct JSON object
+    construct = {
+        'message': message,
+        'salt': base64.b64encode(salt).decode(),
+        'key': base64.b64encode(public_key_bytes).decode()
+    }
+    construct = json.dumps(construct)
+
+    # Encrypt the message
+    encrypted_message = encrypt(construct.encode(), encryption_key)
+    send_bytes(bytes([0x00]) + encrypted_message)
+
+    # Receive the public key
+    peer_public_key_bytes = decrypt(message_queue.get(), encryption_key)
+
+    # Derive the encryption key
+    encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
+
+def recv_encrypted_message(encrypted_message):
+    global encryption_key
+
+    # Generate a new key pair
+    private_key, public_key_bytes = generate_key_pair()
+
+    # Decrypt the message
+    construct = decrypt(encrypted_message, encryption_key)
+    
+    # Parse the JSON object
+    construct = json.loads(construct.decode())
+    message = construct['message']
+    salt = base64.b64decode(construct['salt'])
+    peer_public_key_bytes = base64.b64decode(construct['key'])
+
+    # Send the public key
+    send_bytes(bytes([0x01]) + encrypt(public_key_bytes, encryption_key))
+
+    # Derive the encryption key
+    encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
+
+    return message
 
 # Thread for sending messages
 def thread_sending():
     while True:
-        message_to_send = input('\nWrite a message: ')
-        if message_to_send:
+        message = input('\nWrite a message: ')
+        if message:
             try:
-                send_msg(encrypt(message_to_send, encryption_key))
-                print(f'Sent ({print_time('minutes')}): {message_to_send}')
-                if message_to_send == '/quit':
+                send_encrypted_message(message)
+                print(f'Sent ({print_time('minutes')}): {message}')
+                if message == '/quit':
                     print('\nEnding the chat...')
                     main_socket.close()
                     return
@@ -223,13 +280,22 @@ def thread_sending():
 def thread_receiving():
     while True:
         try:
-            message = decrypt(recv_msg(), encryption_key)
-            if message == '/quit':
-                print('\n\nPeer left the chat, exiting...\n')
-                main_socket.close()
-                return
-            print(f'\nReceived ({print_time('minutes')}): {message}')
-            print('\nWrite a message: ', end='')
+            # Receive the message
+            incoming_message = recv_bytes()
+            message_type = incoming_message[0]
+            message = incoming_message[1:]
+
+            # Handle the message
+            if message_type == 0x00:
+                plaintext = recv_encrypted_message(message)
+                if plaintext == '/quit':
+                    print('\n\nPeer left the chat, exiting...\n')
+                    main_socket.close()
+                    return
+                print(f'\nReceived ({print_time('minutes')}): {plaintext}')
+                print('\nWrite a message: ', end='')
+            elif message_type == 0x01:
+                message_queue.put(message)
         except SSL.SysCallError:
             print('\nConnection broke, exiting...\n')
             main_socket.close()
@@ -245,3 +311,6 @@ thread_send.daemon = True
 thread_receive = threading.Thread(target=thread_receiving)
 thread_send.start()
 thread_receive.start()
+
+# Create a message queue
+message_queue = queue.Queue()
