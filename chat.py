@@ -180,12 +180,12 @@ print(line_print)
 
 # Print details about the encryption setup
 print('Chat is now end-to-end encrypted:\n')
-print('- Socket wrapper  :  Secure Sockets Layer (SSL)')
-print('- Key exchange    :  Elliptic Curve Diffie-Hellman (ECDH)')
-print('- Elliptic curve  :  NIST P-384 (secp384r1)')
-print('- Key derivation  :  HKDF-SHA384')
-print('- Encryption      :  ChaCha20-Poly1305')
-print('- Forward secrecy :  Enabled for each message')
+print('- Socket wrapper  : Secure Sockets Layer (SSL)')
+print('- Key exchange    : Elliptic Curve Diffie-Hellman (ECDH)')
+print('- Elliptic curve  : NIST P-384 (secp384r1)')
+print('- Key derivation  : HKDF-SHA384')
+print('- Encryption      : ChaCha20-Poly1305')
+print('- Forward secrecy : Enabled for each message')
 print('\nExit by typing /quit')
 print(line_print)
 
@@ -283,7 +283,7 @@ def thread_sending():
         if message:
             try:
                 send_encrypted_message(message)
-                print(f'Sent ({print_time('minutes')}): {message}')
+                print(f'\033[F\33[2K\rSent ({print_time('minutes')}): {message}')
                 if message == '/quit':
                     print('\nEnding the chat...')
                     main_socket.close()
@@ -307,7 +307,7 @@ def thread_receiving():
                     print('\n\nPeer left the chat, exiting...\n')
                     main_socket.close()
                     return
-                print(f'\nReceived ({print_time('minutes')}): {message}')
+                print(f'\033[F\33[2K\r\nReceived ({print_time('minutes')}): {message}')
                 print('\nWrite a message: ', end='')
         except SSL.SysCallError:
             print('\nConnection broke, exiting...\n')
