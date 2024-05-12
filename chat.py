@@ -1,6 +1,7 @@
 import socket, os, argparse, struct, json, base64, threading, queue
 from prettytable import PrettyTable
 from pyfiglet import Figlet
+from termcolor import colored
 from datetime import datetime
 from hashlib import sha256
 from OpenSSL import crypto, SSL
@@ -28,10 +29,10 @@ print(line_print)
 
 # Function to print the current time
 def print_time(resolution):
-    if resolution == 'seconds':
-        return datetime.now().strftime('%H:%M:%S')
-    else:
+    if resolution == 'minutes':
         return datetime.now().strftime('%H:%M')
+    elif resolution == 'date':
+        return datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
 # Try to set the server address, defaulting to the local IP if no IP is provided
 try:
@@ -80,7 +81,7 @@ else:
 try:
     main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
     main_socket.connect((args.target, args.remote))
-    print(f'\nConnected as a client to: {main_socket.getsockname()[0]} ({print_time('seconds')})')
+    print(f'\nConnected as a client to: {main_socket.getsockname()[0]} ({print_time('date')})')
     initiate_handshake = False
 except socket.error:
     print(f'\nTarget is not available, starting listening server on port {args.port}...')
@@ -88,7 +89,7 @@ except socket.error:
     main_socket.bind((server_address, args.port))
     main_socket.listen(1)
     main_socket, client_address = main_socket.accept()
-    print(f'\nServer received connection from: {client_address[0]} ({print_time('seconds')})')
+    print(f'\nServer received connection from: {client_address[0]} ({print_time('date')})')
     initiate_handshake = True
 
 print(line_print)
@@ -171,7 +172,7 @@ else:
 encryption_key = get_encryption_key(private_key, peer_public_key_bytes, salt)
 
 # Print the public keys
-print(f'Key exchange completed ({print_time('seconds')})')
+print(f'Key exchange completed ({print_time('date')})')
 print('\nVerify public key hashes using out-of-band communication:')
 keys_table = PrettyTable(['Your Public Key Hash', 'Peer\'s Public Key Hash'], max_width=32)
 keys_table.add_row([sha256(public_key_bytes).hexdigest(), sha256(peer_public_key_bytes).hexdigest()])
@@ -179,7 +180,7 @@ print(keys_table)
 print(line_print)
 
 # Print details about the encryption setup
-print('Chat is now end-to-end encrypted:\n')
+print(f'Chat started: {print_time("date")}\n')
 print('- Socket wrapper  : Secure Sockets Layer (SSL)')
 print('- Key exchange    : Elliptic Curve Diffie-Hellman (ECDH)')
 print('- Elliptic curve  : NIST P-384 (secp384r1)')
@@ -283,7 +284,7 @@ def thread_sending():
         if message:
             try:
                 send_encrypted_message(message)
-                print(f'\033[F\33[2K\rSent ({print_time('minutes')}): {message}')
+                print(f'\033[F\33[2K\rSent {print_time('minutes')}: {colored(message, attrs=["bold"])}')
                 if message == '/quit':
                     print('\nEnding the chat...')
                     main_socket.close()
@@ -307,7 +308,7 @@ def thread_receiving():
                     print('\n\nPeer left the chat, exiting...\n')
                     main_socket.close()
                     return
-                print(f'\033[F\33[2K\r\nReceived ({print_time('minutes')}): {message}')
+                print(f'\033[F\33[2K\r\nReceived {print_time('minutes')}: {colored(message, attrs=["bold"])}')
                 print('\nWrite a message: ', end='')
         except SSL.SysCallError:
             print('\nConnection broke, exiting...\n')
