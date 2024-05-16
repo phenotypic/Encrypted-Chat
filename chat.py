@@ -142,7 +142,7 @@ def get_encryption_key(private_key, peer_public_key_bytes, salt):
     shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
 
     # Derive the encryption key
-    return derive_key(shared_secret, salt, info=b'encryption key')
+    return derive_key(shared_secret, salt, b'encryption key')
 
 def derive_key(key_material, salt, info):
     hkdf = HKDF(
@@ -196,15 +196,13 @@ def encrypt(message, key):
     aead_cipher = ChaCha20Poly1305(key)
     nonce = os.urandom(12)
     encrypted_message = aead_cipher.encrypt(nonce, message)
-    encrypted_message = nonce + encrypted_message
-    return encrypted_message
+    return nonce + encrypted_message
 
 # Decryption function. Accepts an encrypted message (bytes) and a key, returns plaintext (bytes)
 def decrypt(encrypted_message, key):
     aead_cipher = ChaCha20Poly1305(key)
     nonce = encrypted_message[:12]
-    plaintext = aead_cipher.decrypt(nonce, encrypted_message[12:])
-    return plaintext
+    return aead_cipher.decrypt(nonce, encrypted_message[12:])
 
 def send_encrypted_message(message):
     global encryption_key
@@ -223,14 +221,14 @@ def send_encrypted_message(message):
         'key': base64.b64encode(public_key_bytes).decode(),
         'sub_salt': base64.b64encode(sub_salt).decode()
     }
-    construct = json.dumps(construct)
+    construct = json.dumps(construct).encode()
 
     # Encrypt the message
-    encrypted_message = encrypt(bytes([0x00]) + construct.encode(), encryption_key)
+    encrypted_message = encrypt(bytes([0x00]) + construct, encryption_key)
     send_bytes(encrypted_message)
 
     # Derive sub-key to handle DH response
-    encryption_key = derive_key(encryption_key, sub_salt, info=b'sub-key')
+    encryption_key = derive_key(encryption_key, sub_salt, b'sub-key')
 
     # Receive the public key (already decrypted by the time this is called)
     peer_public_key_bytes = message_queue.get()
@@ -267,7 +265,7 @@ def recv_encrypted_message():
     sub_salt = base64.b64decode(construct['sub_salt'])
 
     # Derive sub-key to handle DH response
-    encryption_key = derive_key(encryption_key, sub_salt, info=b'sub-key')
+    encryption_key = derive_key(encryption_key, sub_salt, b'sub-key')
 
     # Send the public key using the sub-key
     send_bytes(encrypt(bytes([0x01]) + public_key_bytes, encryption_key))
