@@ -1,16 +1,17 @@
-import socket, os, argparse, struct, json, base64, threading, queue
+import socket, os, argparse, struct, json, base64, threading, queue, ssl
+from datetime import datetime, timezone
 from prettytable import PrettyTable
 from pyfiglet import Figlet
 from termcolor import colored
 from datetime import datetime
 from hashlib import sha256
-from OpenSSL import crypto, SSL
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
-from cryptography.hazmat.primitives import serialization
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--ip', type=str, help='server IP address (defaults to local IP)')
@@ -27,14 +28,12 @@ print('\n\n' + Figlet(font='big', justify='center').renderText('P2P Chat'))
 line_print = '-' * os.get_terminal_size().columns
 print(line_print)
 
-# Function to print the current time
 def print_time(resolution):
     if resolution == 'minutes':
         return datetime.now().strftime('%H:%M')
     elif resolution == 'date':
         return datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
-# Try to set the server address, defaulting to the local IP if no IP is provided
 try:
     server_address = args.ip or socket.gethostbyname_ex(hostname)[-1][-1]
 except:
@@ -42,54 +41,98 @@ except:
     quit()
 print(f'Local host address: {server_address}:{args.port}')
 
-# If no target IP is provided, ask the user to input it
 if not args.target:
     target_ip, *target_port = input('Input target address: ').split(':')
     args.target = target_ip
     args.remote = int(target_port[0]) if target_port else args.remote
 print(f'Target address: {args.target}:{args.remote}')
 
-# Set up SSL context
-secure_context = SSL.Context(SSL.TLS_METHOD)
+# Set up SSL context using standard ssl module
+secure_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+secure_context.verify_mode = ssl.CERT_NONE  # Since we're using self-signed certificates
 
-# Fucntion to generate a new RSA key pair and create a self-signed certificate
 def create_self_signed_cert():
-    keypair = crypto.PKey()
-    keypair.generate_key(crypto.TYPE_RSA, 2048)
-
-    cert = crypto.X509()
-    cert.get_subject().CN = hostname
-    cert.set_issuer(cert.get_subject())
-    cert.gmtime_adj_notBefore(0)
-    cert.gmtime_adj_notAfter(5*24*60*60)  # Certificate is valid for 5 days
-    cert.set_pubkey(keypair)
-    cert.sign(keypair, 'sha256')
-
-    return keypair, cert
+    # Generate private key
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+    
+    # Generate self-signed certificate
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, hostname)
+    ])
+    
+    cert = x509.CertificateBuilder().subject_name(
+        subject
+    ).issuer_name(
+        issuer
+    ).public_key(
+        private_key.public_key()
+    ).serial_number(
+        x509.random_serial_number()
+    ).not_valid_before(
+        datetime.now(timezone.utc)
+    ).not_valid_after(
+        datetime.now(timezone.utc).replace(day=datetime.now(timezone.utc).day + 5)
+    ).sign(private_key, hashes.SHA256(), default_backend())
+    
+    # Serialize private key and certificate
+    private_key_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    
+    cert_bytes = cert.public_bytes(serialization.Encoding.PEM)
+    
+    return private_key_bytes, cert_bytes
 
 if args.key and args.cert:
-    # Use the provided key and certificate
-    secure_context.use_privatekey_file(args.key)
-    secure_context.use_certificate_file(args.cert)
+    # Use provided key and certificate
+    secure_context.load_cert_chain(args.cert, args.key)
 else:
-    # No key and certificate provided, generate a new self-signed certificate
-    keypair, cert = create_self_signed_cert()
-    secure_context.use_privatekey(keypair)
-    secure_context.use_certificate(cert)
+    # Generate new self-signed certificate
+    private_key_bytes, cert_bytes = create_self_signed_cert()
+    
+    # Write temporary files for the SSL context
+    temp_key_path = 'temp_key.pem'
+    temp_cert_path = 'temp_cert.pem'
+    
+    with open(temp_key_path, 'wb') as f:
+        f.write(private_key_bytes)
+    with open(temp_cert_path, 'wb') as f:
+        f.write(cert_bytes)
+    
+    secure_context.load_cert_chain(temp_cert_path, temp_key_path)
+    
+    # Clean up temporary files
+    os.remove(temp_key_path)
+    os.remove(temp_cert_path)
 
 # Establish peer-to-peer connection
 try:
-    main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+    main_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # For client mode, use different SSL context
+    client_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    client_context.check_hostname = False
+    client_context.verify_mode = ssl.CERT_NONE
+    main_socket = client_context.wrap_socket(main_socket)
     main_socket.connect((args.target, args.remote))
-    print(f'\nConnected as a client to: {main_socket.getsockname()[0]} ({print_time('date')})')
+    print(f'\nConnected as a client to: {main_socket.getsockname()[0]} ({print_time("date")})')
     initiate_handshake = False
 except socket.error:
     print(f'\nTarget is not available, starting listening server on port {args.port}...')
-    main_socket = SSL.Connection(secure_context, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-    main_socket.bind((server_address, args.port))
-    main_socket.listen(1)
-    main_socket, client_address = main_socket.accept()
-    print(f'\nServer received connection from: {client_address[0]} ({print_time('date')})')
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((server_address, args.port))
+    server_socket.listen(1)
+    client_socket, client_address = server_socket.accept()
+    main_socket = secure_context.wrap_socket(
+        client_socket,
+        server_side=True
+    )
+    print(f'\nServer received connection from: {client_address[0]} ({print_time("date")})')
     initiate_handshake = True
 
 print(line_print)
@@ -104,7 +147,7 @@ def recv_bytes():
     # Read message length and unpack it into an integer
     raw_msglen = recvall(4)
     if not raw_msglen:
-        return None
+        return b''
     msglen = struct.unpack('>I', raw_msglen)[0]
     # Read the message data
     return recvall(msglen)
@@ -195,14 +238,14 @@ def encrypt(message, key):
     # Encrypt the message using the derived key
     aead_cipher = ChaCha20Poly1305(key)
     nonce = os.urandom(12)
-    encrypted_message = aead_cipher.encrypt(nonce, message)
+    encrypted_message = aead_cipher.encrypt(nonce, message, None)
     return nonce + encrypted_message
 
 # Decryption function. Accepts an encrypted message (bytes) and a key, returns plaintext (bytes)
 def decrypt(encrypted_message, key):
     aead_cipher = ChaCha20Poly1305(key)
     nonce = encrypted_message[:12]
-    return aead_cipher.decrypt(nonce, encrypted_message[12:])
+    return aead_cipher.decrypt(nonce, encrypted_message[12:], None)
 
 def send_encrypted_message(message):
     global encryption_key
@@ -287,7 +330,7 @@ def thread_sending():
                     print('\nEnding the chat...')
                     main_socket.close()
                     return
-            except SSL.SysCallError:
+            except ssl.SSLError:
                 print('Sending connection broke')
                 return
             except Exception as e:
@@ -308,7 +351,7 @@ def thread_receiving():
                     return
                 print(f'\033[F\33[2K\r\nReceived {print_time('minutes')}: {colored(message, attrs=["bold"])}')
                 print('\nWrite a message: ', end='')
-        except SSL.SysCallError:
+        except ssl.SSLError:
             print('\nConnection broke, exiting...\n')
             main_socket.close()
             return
