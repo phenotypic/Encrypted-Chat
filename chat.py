@@ -28,12 +28,14 @@ print('\n\n' + Figlet(font='big', justify='center').renderText('P2P Chat'))
 line_print = '-' * os.get_terminal_size().columns
 print(line_print)
 
+# Function to print the current time
 def print_time(resolution):
     if resolution == 'minutes':
         return datetime.now().strftime('%H:%M')
     elif resolution == 'date':
         return datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
+# Try to set the server address, defaulting to the local IP if no IP is provided
 try:
     server_address = args.ip or socket.gethostbyname_ex(hostname)[-1][-1]
 except:
@@ -41,16 +43,18 @@ except:
     quit()
 print(f'Local host address: {server_address}:{args.port}')
 
+# If no target IP is provided, ask the user to input it
 if not args.target:
     target_ip, *target_port = input('Input target address: ').split(':')
     args.target = target_ip
     args.remote = int(target_port[0]) if target_port else args.remote
 print(f'Target address: {args.target}:{args.remote}')
 
-# Set up SSL context using standard ssl module
+# Set up SSL context
 secure_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 secure_context.verify_mode = ssl.CERT_NONE  # Since we're using self-signed certificates
 
+# Fucntion to generate a new RSA key pair and create a self-signed certificate
 def create_self_signed_cert():
     # Generate private key
     private_key = rsa.generate_private_key(
